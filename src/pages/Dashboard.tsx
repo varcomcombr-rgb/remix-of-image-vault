@@ -4,14 +4,17 @@ import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
 import {
   Upload,
-  Trash2,
-  Copy,
-  LogOut,
-  ImageIcon,
   Loader2,
-  CheckCircle,
+  ImageIcon,
   FolderOpen,
+  LayoutGrid,
+  List,
 } from "lucide-react";
+import DashboardHeader from "@/components/dashboard/DashboardHeader";
+import FileGridView from "@/components/dashboard/FileGridView";
+import FileListView from "@/components/dashboard/FileListView";
+import FilePreviewModal from "@/components/dashboard/FilePreviewModal";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 
 const BUCKET = "varcom";
 const FOLDER = "Imagem";
@@ -31,6 +34,8 @@ const Dashboard = ({ onLogout }: DashboardProps) => {
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
   const [dragOver, setDragOver] = useState(false);
+  const [viewMode, setViewMode] = useState<string>("grid");
+  const [previewFile, setPreviewFile] = useState<FileItem | null>(null);
 
   const getPublicUrl = (fileName: string) => {
     const { data } = supabase.storage
@@ -127,37 +132,15 @@ const Dashboard = ({ onLogout }: DashboardProps) => {
 
   return (
     <div className="min-h-screen bg-background">
-      {/* Header */}
-      <header className="border-b bg-card/50 backdrop-blur-sm sticky top-0 z-10">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex items-center justify-between h-16">
-          <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-lg bg-primary/10 flex items-center justify-center">
-              <ImageIcon className="w-5 h-5 text-primary" />
-            </div>
-            <div>
-              <h1 className="text-lg font-bold text-gradient">VarCom CDN</h1>
-              <p className="text-xs text-muted-foreground font-mono">
-                /varcom/Imagem/
-              </p>
-            </div>
-          </div>
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={handleLogout}
-            className="text-muted-foreground hover:text-foreground"
-          >
-            <LogOut className="w-4 h-4 mr-2" />
-            Sair
-          </Button>
-        </div>
-      </header>
+      <DashboardHeader onLogout={handleLogout} />
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {/* Upload Zone */}
         <div
           className={`border-2 border-dashed rounded-xl p-8 text-center transition-all cursor-pointer mb-8 ${
-            dragOver ? "dropzone-active" : "border-border hover:border-muted-foreground/40"
+            dragOver
+              ? "dropzone-active"
+              : "border-border hover:border-muted-foreground/40"
           }`}
           onDragOver={(e) => {
             e.preventDefault();
@@ -193,15 +176,30 @@ const Dashboard = ({ onLogout }: DashboardProps) => {
           )}
         </div>
 
-        {/* File Grid */}
-        <div className="flex items-center gap-2 mb-4">
-          <FolderOpen className="w-5 h-5 text-primary" />
-          <h2 className="text-lg font-semibold">
-            Arquivos{" "}
-            <span className="text-muted-foreground font-normal text-sm">
-              ({files.length})
-            </span>
-          </h2>
+        {/* File Section Header */}
+        <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center gap-2">
+            <FolderOpen className="w-5 h-5 text-primary" />
+            <h2 className="text-lg font-semibold">
+              Arquivos{" "}
+              <span className="text-muted-foreground font-normal text-sm">
+                ({files.length})
+              </span>
+            </h2>
+          </div>
+          <ToggleGroup
+            type="single"
+            value={viewMode}
+            onValueChange={(v) => v && setViewMode(v)}
+            size="sm"
+          >
+            <ToggleGroupItem value="grid" aria-label="Grade">
+              <LayoutGrid className="w-4 h-4" />
+            </ToggleGroupItem>
+            <ToggleGroupItem value="list" aria-label="Lista">
+              <List className="w-4 h-4" />
+            </ToggleGroupItem>
+          </ToggleGroup>
         </div>
 
         {loading ? (
@@ -213,53 +211,29 @@ const Dashboard = ({ onLogout }: DashboardProps) => {
             <ImageIcon className="w-12 h-12 mx-auto mb-3 opacity-30" />
             <p>Nenhuma imagem encontrada</p>
           </div>
+        ) : viewMode === "grid" ? (
+          <FileGridView
+            files={files}
+            onCopy={copyUrl}
+            onDelete={handleDelete}
+            onPreview={setPreviewFile}
+          />
         ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-            {files.map((file) => (
-              <div
-                key={file.name}
-                className="group rounded-xl border bg-card overflow-hidden hover:glow-border transition-shadow"
-              >
-                <div className="aspect-square bg-muted relative overflow-hidden">
-                  <img
-                    src={file.url}
-                    alt={file.name}
-                    className="w-full h-full object-cover"
-                    loading="lazy"
-                  />
-                </div>
-                <div className="p-3 space-y-2">
-                  <p
-                    className="text-sm font-mono text-foreground truncate"
-                    title={file.name}
-                  >
-                    {file.name}
-                  </p>
-                  <div className="flex gap-1.5">
-                    <Button
-                      variant="secondary"
-                      size="sm"
-                      className="flex-1 text-xs"
-                      onClick={() => copyUrl(file.url)}
-                    >
-                      <Copy className="w-3 h-3 mr-1" />
-                      Copiar URL
-                    </Button>
-                    <Button
-                      variant="destructive"
-                      size="sm"
-                      className="text-xs px-2.5"
-                      onClick={() => handleDelete(file.name)}
-                    >
-                      <Trash2 className="w-3 h-3" />
-                    </Button>
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
+          <FileListView
+            files={files}
+            onCopy={copyUrl}
+            onDelete={handleDelete}
+            onPreview={setPreviewFile}
+          />
         )}
       </main>
+
+      <FilePreviewModal
+        open={!!previewFile}
+        onOpenChange={(open) => !open && setPreviewFile(null)}
+        fileName={previewFile?.name || ""}
+        fileUrl={previewFile?.url || ""}
+      />
     </div>
   );
 };

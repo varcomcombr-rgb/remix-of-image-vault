@@ -56,6 +56,11 @@ const LoginPage = ({ onLogin }: LoginPageProps) => {
           </div>
         </div>
 
+        {/* Vertical Separator */}
+        <div className="hidden lg:flex items-center">
+          <div className="w-px h-2/3 bg-border" />
+        </div>
+
         {/* Right Panel - Login Form */}
         <div className="flex-1 flex items-center justify-center p-8 lg:p-12">
           <div className="w-full max-w-sm">
