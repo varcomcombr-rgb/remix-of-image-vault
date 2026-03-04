@@ -1,28 +1,30 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useMemo } from "react";
 import { supabase } from "@/integrations/supabase/client";
-import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
 import {
-  Upload,
-  Loader2,
   ImageIcon,
   FolderOpen,
   LayoutGrid,
   List,
+  Loader2,
+  Upload,
 } from "lucide-react";
 import DashboardHeader from "@/components/dashboard/DashboardHeader";
 import FileGridView from "@/components/dashboard/FileGridView";
 import FileListView from "@/components/dashboard/FileListView";
 import FilePreviewModal from "@/components/dashboard/FilePreviewModal";
+import FileSearchFilters from "@/components/dashboard/FileSearchFilters";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 
 const BUCKET = "varcom";
 const FOLDER = "Imagem";
+const BASE_URL = `https://wdcqjsfsdaddgsbrnrnn.supabase.co/storage/v1/object/public/${BUCKET}/${FOLDER}`;
 
 interface FileItem {
   name: string;
   url: string;
   updated_at: string;
+  size?: number;
 }
 
 interface DashboardProps {
@@ -37,12 +39,14 @@ const Dashboard = ({ onLogout }: DashboardProps) => {
   const [viewMode, setViewMode] = useState<string>("grid");
   const [previewFile, setPreviewFile] = useState<FileItem | null>(null);
 
-  const getPublicUrl = (fileName: string) => {
-    const { data } = supabase.storage
-      .from(BUCKET)
-      .getPublicUrl(`${FOLDER}/${fileName}`);
-    return data.publicUrl;
-  };
+  // Filters
+  const [searchQuery, setSearchQuery] = useState("");
+  const [typeFilter, setTypeFilter] = useState("all");
+  const [dateFrom, setDateFrom] = useState<Date | undefined>();
+  const [dateTo, setDateTo] = useState<Date | undefined>();
+  const [exporting, setExporting] = useState(false);
+
+  const getPublicUrl = (fileName: string) => `${BASE_URL}/${fileName}`;
 
   const fetchFiles = useCallback(async () => {
     setLoading(true);
@@ -62,6 +66,7 @@ const Dashboard = ({ onLogout }: DashboardProps) => {
         name: f.name,
         url: getPublicUrl(f.name),
         updated_at: f.updated_at || "",
+        size: (f.metadata as any)?.size || 0,
       }));
 
     setFiles(items);
@@ -71,6 +76,85 @@ const Dashboard = ({ onLogout }: DashboardProps) => {
   useState(() => {
     fetchFiles();
   });
+
+  const filteredFiles = useMemo(() => {
+    let result = files;
+
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase();
+      result = result.filter((f) => f.name.toLowerCase().includes(q));
+    }
+
+    if (typeFilter !== "all") {
+      result = result.filter((f) => f.name.toLowerCase().endsWith(typeFilter));
+    }
+
+    if (dateFrom) {
+      const from = new Date(dateFrom);
+      from.setHours(0, 0, 0, 0);
+      result = result.filter((f) => f.updated_at && new Date(f.updated_at) >= from);
+    }
+
+    if (dateTo) {
+      const to = new Date(dateTo);
+      to.setHours(23, 59, 59, 999);
+      result = result.filter((f) => f.updated_at && new Date(f.updated_at) <= to);
+    }
+
+    return result;
+  }, [files, searchQuery, typeFilter, dateFrom, dateTo]);
+
+  const hasActiveFilters = searchQuery !== "" || typeFilter !== "all" || !!dateFrom || !!dateTo;
+
+  const clearFilters = () => {
+    setSearchQuery("");
+    setTypeFilter("all");
+    setDateFrom(undefined);
+    setDateTo(undefined);
+  };
+
+  const exportCSV = async () => {
+    setExporting(true);
+    try {
+      const getExt = (name: string) => {
+        const i = name.lastIndexOf(".");
+        return i >= 0 ? name.substring(i) : "";
+      };
+
+      const formatSize = (bytes: number) => {
+        if (!bytes) return "N/A";
+        if (bytes < 1024) return `${bytes} B`;
+        if (bytes < 1048576) return `${(bytes / 1024).toFixed(1)} KB`;
+        return `${(bytes / 1048576).toFixed(2)} MB`;
+      };
+
+      const headers = ["Nome do Arquivo", "Tamanho", "Tipo", "Data de Criação", "URL Pública"];
+      const rows = filteredFiles.map((f) => [
+        f.name,
+        formatSize(f.size || 0),
+        getExt(f.name) || "N/A",
+        f.updated_at ? new Date(f.updated_at).toLocaleDateString("pt-BR") : "N/A",
+        `${BASE_URL}/${f.name}`,
+      ]);
+
+      const csvContent = [headers, ...rows]
+        .map((row) => row.map((cell) => `"${cell}"`).join(","))
+        .join("\n");
+
+      const BOM = "\uFEFF";
+      const blob = new Blob([BOM + csvContent], { type: "text/csv;charset=utf-8;" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `varcom-relatorio-${new Date().toISOString().slice(0, 10)}.csv`;
+      a.click();
+      URL.revokeObjectURL(url);
+      toast.success("Relatório exportado com sucesso!");
+    } catch {
+      toast.error("Erro ao exportar relatório");
+    }
+    setExporting(false);
+  };
 
   const uploadFiles = async (fileList: FileList | File[]) => {
     setUploading(true);
@@ -176,6 +260,22 @@ const Dashboard = ({ onLogout }: DashboardProps) => {
           )}
         </div>
 
+        {/* Search & Filters */}
+        <FileSearchFilters
+          searchQuery={searchQuery}
+          onSearchChange={setSearchQuery}
+          typeFilter={typeFilter}
+          onTypeFilterChange={setTypeFilter}
+          dateFrom={dateFrom}
+          onDateFromChange={setDateFrom}
+          dateTo={dateTo}
+          onDateToChange={setDateTo}
+          onClearFilters={clearFilters}
+          onExport={exportCSV}
+          exporting={exporting}
+          hasActiveFilters={hasActiveFilters}
+        />
+
         {/* File Section Header */}
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-2">
@@ -183,7 +283,7 @@ const Dashboard = ({ onLogout }: DashboardProps) => {
             <h2 className="text-lg font-semibold">
               Arquivos{" "}
               <span className="text-muted-foreground font-normal text-sm">
-                ({files.length})
+                ({filteredFiles.length})
               </span>
             </h2>
           </div>
@@ -206,21 +306,21 @@ const Dashboard = ({ onLogout }: DashboardProps) => {
           <div className="flex justify-center py-16">
             <Loader2 className="w-6 h-6 text-primary animate-spin" />
           </div>
-        ) : files.length === 0 ? (
+        ) : filteredFiles.length === 0 ? (
           <div className="text-center py-16 text-muted-foreground">
             <ImageIcon className="w-12 h-12 mx-auto mb-3 opacity-30" />
-            <p>Nenhuma imagem encontrada</p>
+            <p>{hasActiveFilters ? "Nenhum arquivo corresponde aos filtros" : "Nenhuma imagem encontrada"}</p>
           </div>
         ) : viewMode === "grid" ? (
           <FileGridView
-            files={files}
+            files={filteredFiles}
             onCopy={copyUrl}
             onDelete={handleDelete}
             onPreview={setPreviewFile}
           />
         ) : (
           <FileListView
-            files={files}
+            files={filteredFiles}
             onCopy={copyUrl}
             onDelete={handleDelete}
             onPreview={setPreviewFile}
