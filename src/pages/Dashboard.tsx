@@ -1,6 +1,7 @@
 import { useState, useCallback, useMemo } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
+import * as XLSX from "xlsx";
 import {
   ImageIcon,
   FolderOpen,
@@ -39,11 +40,18 @@ const Dashboard = ({ onLogout }: DashboardProps) => {
   const [viewMode, setViewMode] = useState<string>("grid");
   const [previewFile, setPreviewFile] = useState<FileItem | null>(null);
 
-  // Filters
+  // Pending filter state (before Apply)
   const [searchQuery, setSearchQuery] = useState("");
   const [typeFilter, setTypeFilter] = useState("all");
   const [dateFrom, setDateFrom] = useState<Date | undefined>();
   const [dateTo, setDateTo] = useState<Date | undefined>();
+
+  // Applied filter state
+  const [appliedSearch, setAppliedSearch] = useState("");
+  const [appliedType, setAppliedType] = useState("all");
+  const [appliedDateFrom, setAppliedDateFrom] = useState<Date | undefined>();
+  const [appliedDateTo, setAppliedDateTo] = useState<Date | undefined>();
+
   const [exporting, setExporting] = useState(false);
 
   const getPublicUrl = (fileName: string) => `${BASE_URL}/${fileName}`;
@@ -77,43 +85,58 @@ const Dashboard = ({ onLogout }: DashboardProps) => {
     fetchFiles();
   });
 
+  // Compute totals for header
+  const totalFiles = files.length;
+  const totalSize = useMemo(() => files.reduce((sum, f) => sum + (f.size || 0), 0), [files]);
+
   const filteredFiles = useMemo(() => {
     let result = files;
 
-    if (searchQuery.trim()) {
-      const q = searchQuery.toLowerCase();
+    if (appliedSearch.trim()) {
+      const q = appliedSearch.toLowerCase();
       result = result.filter((f) => f.name.toLowerCase().includes(q));
     }
 
-    if (typeFilter !== "all") {
-      result = result.filter((f) => f.name.toLowerCase().endsWith(typeFilter));
+    if (appliedType !== "all") {
+      result = result.filter((f) => f.name.toLowerCase().endsWith(appliedType));
     }
 
-    if (dateFrom) {
-      const from = new Date(dateFrom);
+    if (appliedDateFrom) {
+      const from = new Date(appliedDateFrom);
       from.setHours(0, 0, 0, 0);
       result = result.filter((f) => f.updated_at && new Date(f.updated_at) >= from);
     }
 
-    if (dateTo) {
-      const to = new Date(dateTo);
+    if (appliedDateTo) {
+      const to = new Date(appliedDateTo);
       to.setHours(23, 59, 59, 999);
       result = result.filter((f) => f.updated_at && new Date(f.updated_at) <= to);
     }
 
     return result;
-  }, [files, searchQuery, typeFilter, dateFrom, dateTo]);
+  }, [files, appliedSearch, appliedType, appliedDateFrom, appliedDateTo]);
 
   const hasActiveFilters = searchQuery !== "" || typeFilter !== "all" || !!dateFrom || !!dateTo;
+
+  const applyFilters = () => {
+    setAppliedSearch(searchQuery);
+    setAppliedType(typeFilter);
+    setAppliedDateFrom(dateFrom);
+    setAppliedDateTo(dateTo);
+  };
 
   const clearFilters = () => {
     setSearchQuery("");
     setTypeFilter("all");
     setDateFrom(undefined);
     setDateTo(undefined);
+    setAppliedSearch("");
+    setAppliedType("all");
+    setAppliedDateFrom(undefined);
+    setAppliedDateTo(undefined);
   };
 
-  const exportCSV = async () => {
+  const exportXLSX = async () => {
     setExporting(true);
     try {
       const getExt = (name: string) => {
@@ -128,30 +151,21 @@ const Dashboard = ({ onLogout }: DashboardProps) => {
         return `${(bytes / 1048576).toFixed(2)} MB`;
       };
 
-      const headers = ["Nome do Arquivo", "Tamanho", "Tipo", "Data de Criação", "URL Pública"];
-      const rows = filteredFiles.map((f) => [
-        f.name,
-        formatSize(f.size || 0),
-        getExt(f.name) || "N/A",
-        f.updated_at ? new Date(f.updated_at).toLocaleDateString("pt-BR") : "N/A",
-        `${BASE_URL}/${f.name}`,
-      ]);
+      const rows = filteredFiles.map((f) => ({
+        "Nome do Arquivo": f.name,
+        "Tamanho": formatSize(f.size || 0),
+        "Tipo": getExt(f.name) || "N/A",
+        "Data de Criação": f.updated_at ? new Date(f.updated_at).toLocaleDateString("pt-BR") : "N/A",
+        "URL Pública": `${BASE_URL}/${f.name}`,
+      }));
 
-      const csvContent = [headers, ...rows]
-        .map((row) => row.map((cell) => `"${cell}"`).join(","))
-        .join("\n");
-
-      const BOM = "\uFEFF";
-      const blob = new Blob([BOM + csvContent], { type: "text/csv;charset=utf-8;" });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `varcom-relatorio-${new Date().toISOString().slice(0, 10)}.csv`;
-      a.click();
-      URL.revokeObjectURL(url);
-      toast.success("Relatório exportado com sucesso!");
+      const ws = XLSX.utils.json_to_sheet(rows);
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, "Relatório");
+      XLSX.writeFile(wb, `varcom-relatorio-${new Date().toISOString().slice(0, 10)}.xlsx`);
+      toast.success("Planilha exportada com sucesso!");
     } catch {
-      toast.error("Erro ao exportar relatório");
+      toast.error("Erro ao exportar planilha");
     }
     setExporting(false);
   };
@@ -216,7 +230,7 @@ const Dashboard = ({ onLogout }: DashboardProps) => {
 
   return (
     <div className="min-h-screen bg-background">
-      <DashboardHeader onLogout={handleLogout} />
+      <DashboardHeader onLogout={handleLogout} totalFiles={totalFiles} totalSize={totalSize} />
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {/* Upload Zone */}
@@ -270,8 +284,9 @@ const Dashboard = ({ onLogout }: DashboardProps) => {
           onDateFromChange={setDateFrom}
           dateTo={dateTo}
           onDateToChange={setDateTo}
+          onApplyFilters={applyFilters}
           onClearFilters={clearFilters}
-          onExport={exportCSV}
+          onExport={exportXLSX}
           exporting={exporting}
           hasActiveFilters={hasActiveFilters}
         />

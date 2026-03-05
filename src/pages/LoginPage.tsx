@@ -73,14 +73,14 @@ const LoginPage = ({ onLogin }: LoginPageProps) => {
             <form onSubmit={handleLogin} className="space-y-5">
               <div className="space-y-1.5">
                 <Label htmlFor="email" className="text-foreground font-semibold text-sm">
-                  E-mail
+                  Usuário
                 </Label>
                 <Input
                   id="email"
                   type="email"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
-                  placeholder="seu@email.com"
+                  placeholder="usuário@varcom.com.br"
                   required
                   className="h-11 bg-background border-border"
                 />
