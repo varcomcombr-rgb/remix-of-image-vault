@@ -1,7 +1,6 @@
-import { useState } from "react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { Search, X, Download, Loader2 } from "lucide-react";
+import { Search, X, Download, Loader2, Filter } from "lucide-react";
 import {
   Select,
   SelectContent,
@@ -29,6 +28,7 @@ interface FileSearchFiltersProps {
   onDateFromChange: (date: Date | undefined) => void;
   dateTo: Date | undefined;
   onDateToChange: (date: Date | undefined) => void;
+  onApplyFilters: () => void;
   onClearFilters: () => void;
   onExport: () => void;
   exporting: boolean;
@@ -44,6 +44,7 @@ const FileSearchFilters = ({
   onDateFromChange,
   dateTo,
   onDateToChange,
+  onApplyFilters,
   onClearFilters,
   onExport,
   exporting,
@@ -133,6 +134,16 @@ const FileSearchFilters = ({
           </SelectContent>
         </Select>
 
+        {/* Apply */}
+        <Button
+          size="sm"
+          className="text-xs gap-1.5"
+          onClick={onApplyFilters}
+        >
+          <Filter className="w-3.5 h-3.5" />
+          Aplicar
+        </Button>
+
         {/* Clear filters */}
         {hasActiveFilters && (
           <Button
@@ -142,7 +153,7 @@ const FileSearchFilters = ({
             onClick={onClearFilters}
           >
             <X className="w-3.5 h-3.5" />
-            Limpar filtros
+            Limpar
           </Button>
         )}
 
@@ -160,7 +171,7 @@ const FileSearchFilters = ({
             ) : (
               <Download className="w-3.5 h-3.5" />
             )}
-            Exportar Relatório
+            {exporting ? "Gerando Planilha..." : "Exportar Excel"}
           </Button>
         </div>
       </div>
