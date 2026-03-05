@@ -67,7 +67,7 @@ const LoginPage = ({ onLogin }: LoginPageProps) => {
             <img
               src={logoVarcom}
               alt="Varcom"
-              className="h-12 mb-10"
+              className="h-8 mb-10"
             />
 
             <form onSubmit={handleLogin} className="space-y-5">
