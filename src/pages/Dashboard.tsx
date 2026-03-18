@@ -1,6 +1,7 @@
 import { useState, useCallback, useMemo } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
+import JSZip from "jszip";
 import * as XLSX from "xlsx";
 import {
   ImageIcon,
@@ -10,16 +11,18 @@ import {
   Loader2,
   Upload,
 } from "lucide-react";
+import { Checkbox } from "@/components/ui/checkbox";
 import DashboardHeader from "@/components/dashboard/DashboardHeader";
 import FileGridView from "@/components/dashboard/FileGridView";
 import FileListView from "@/components/dashboard/FileListView";
 import FilePreviewModal from "@/components/dashboard/FilePreviewModal";
 import FileSearchFilters from "@/components/dashboard/FileSearchFilters";
+import BulkActionBar from "@/components/dashboard/BulkActionBar";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 
 const BUCKET = "varcom";
 const FOLDER = "Imagem";
-const BASE_URL = `https://wdcqjsfsdaddgsbrnrnn.supabase.co/storage/v1/object/public/${BUCKET}/${FOLDER}`;
+const BASE_URL = `${import.meta.env.VITE_SUPABASE_URL}/storage/v1/object/public/${BUCKET}/${FOLDER}`;
 
 interface FileItem {
   name: string;
@@ -39,14 +42,15 @@ const Dashboard = ({ onLogout }: DashboardProps) => {
   const [dragOver, setDragOver] = useState(false);
   const [viewMode, setViewMode] = useState<string>("grid");
   const [previewFile, setPreviewFile] = useState<FileItem | null>(null);
+  const [selectedFiles, setSelectedFiles] = useState<Set<string>>(new Set());
+  const [bulkDownloading, setBulkDownloading] = useState(false);
+  const [bulkDeleting, setBulkDeleting] = useState(false);
 
-  // Pending filter state (before Apply)
   const [searchQuery, setSearchQuery] = useState("");
   const [typeFilter, setTypeFilter] = useState("all");
   const [dateFrom, setDateFrom] = useState<Date | undefined>();
   const [dateTo, setDateTo] = useState<Date | undefined>();
 
-  // Applied filter state
   const [appliedSearch, setAppliedSearch] = useState("");
   const [appliedType, setAppliedType] = useState("all");
   const [appliedDateFrom, setAppliedDateFrom] = useState<Date | undefined>();
@@ -85,34 +89,28 @@ const Dashboard = ({ onLogout }: DashboardProps) => {
     fetchFiles();
   });
 
-  // Compute totals for header
   const totalFiles = files.length;
   const totalSize = useMemo(() => files.reduce((sum, f) => sum + (f.size || 0), 0), [files]);
 
   const filteredFiles = useMemo(() => {
     let result = files;
-
     if (appliedSearch.trim()) {
       const q = appliedSearch.toLowerCase();
       result = result.filter((f) => f.name.toLowerCase().includes(q));
     }
-
     if (appliedType !== "all") {
       result = result.filter((f) => f.name.toLowerCase().endsWith(appliedType));
     }
-
     if (appliedDateFrom) {
       const from = new Date(appliedDateFrom);
       from.setHours(0, 0, 0, 0);
       result = result.filter((f) => f.updated_at && new Date(f.updated_at) >= from);
     }
-
     if (appliedDateTo) {
       const to = new Date(appliedDateTo);
       to.setHours(23, 59, 59, 999);
       result = result.filter((f) => f.updated_at && new Date(f.updated_at) <= to);
     }
-
     return result;
   }, [files, appliedSearch, appliedType, appliedDateFrom, appliedDateTo]);
 
@@ -136,6 +134,81 @@ const Dashboard = ({ onLogout }: DashboardProps) => {
     setAppliedDateTo(undefined);
   };
 
+  // Selection logic
+  const toggleSelect = (name: string) => {
+    setSelectedFiles((prev) => {
+      const next = new Set(prev);
+      if (next.has(name)) next.delete(name);
+      else next.add(name);
+      return next;
+    });
+  };
+
+  const toggleSelectAll = () => {
+    if (selectedFiles.size === filteredFiles.length) {
+      setSelectedFiles(new Set());
+    } else {
+      setSelectedFiles(new Set(filteredFiles.map((f) => f.name)));
+    }
+  };
+
+  const clearSelection = () => setSelectedFiles(new Set());
+
+  // Bulk download
+  const bulkDownload = async () => {
+    const selected = filteredFiles.filter((f) => selectedFiles.has(f.name));
+    if (selected.length === 0) return;
+
+    setBulkDownloading(true);
+    try {
+      if (selected.length === 1) {
+        const link = document.createElement("a");
+        link.href = selected[0].url;
+        link.download = selected[0].name;
+        link.target = "_blank";
+        link.click();
+      } else {
+        const zip = new JSZip();
+        await Promise.all(
+          selected.map(async (file) => {
+            const res = await fetch(file.url);
+            const blob = await res.blob();
+            zip.file(file.name, blob);
+          })
+        );
+        const content = await zip.generateAsync({ type: "blob" });
+        const link = document.createElement("a");
+        link.href = URL.createObjectURL(content);
+        link.download = `varcom-${new Date().toISOString().slice(0, 10)}.zip`;
+        link.click();
+        URL.revokeObjectURL(link.href);
+      }
+      toast.success("Download iniciado!");
+    } catch {
+      toast.error("Erro ao baixar arquivos");
+    }
+    setBulkDownloading(false);
+  };
+
+  // Bulk delete
+  const bulkDelete = async () => {
+    const names = Array.from(selectedFiles);
+    if (names.length === 0) return;
+
+    setBulkDeleting(true);
+    const paths = names.map((n) => `${FOLDER}/${n}`);
+    const { error } = await supabase.storage.from(BUCKET).remove(paths);
+
+    if (error) {
+      toast.error("Erro ao excluir arquivos");
+    } else {
+      toast.success(`${names.length} arquivo(s) excluído(s)`);
+      setSelectedFiles(new Set());
+      fetchFiles();
+    }
+    setBulkDeleting(false);
+  };
+
   const exportXLSX = async () => {
     setExporting(true);
     try {
@@ -143,14 +216,12 @@ const Dashboard = ({ onLogout }: DashboardProps) => {
         const i = name.lastIndexOf(".");
         return i >= 0 ? name.substring(i) : "";
       };
-
       const formatSize = (bytes: number) => {
         if (!bytes) return "N/A";
         if (bytes < 1024) return `${bytes} B`;
         if (bytes < 1048576) return `${(bytes / 1024).toFixed(1)} KB`;
         return `${(bytes / 1048576).toFixed(2)} MB`;
       };
-
       const rows = filteredFiles.map((f) => ({
         "Nome do Arquivo": f.name,
         "Tamanho": formatSize(f.size || 0),
@@ -158,7 +229,6 @@ const Dashboard = ({ onLogout }: DashboardProps) => {
         "Data de Criação": f.updated_at ? new Date(f.updated_at).toLocaleDateString("pt-BR") : "N/A",
         "URL Pública": `${BASE_URL}/${f.name}`,
       }));
-
       const ws = XLSX.utils.json_to_sheet(rows);
       const wb = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(wb, ws, "Relatório");
@@ -173,43 +243,31 @@ const Dashboard = ({ onLogout }: DashboardProps) => {
   const uploadFiles = async (fileList: FileList | File[]) => {
     setUploading(true);
     const filesToUpload = Array.from(fileList);
-
     for (const file of filesToUpload) {
       const filePath = `${FOLDER}/${file.name}`;
-      const { error } = await supabase.storage
-        .from(BUCKET)
-        .upload(filePath, file, { upsert: true });
-
+      const { error } = await supabase.storage.from(BUCKET).upload(filePath, file, { upsert: true });
       if (error) {
         toast.error(`Erro ao enviar ${file.name}: ${error.message}`);
       } else {
         toast.success(`${file.name} enviado com sucesso!`);
       }
     }
-
     setUploading(false);
     fetchFiles();
   };
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files && e.target.files.length > 0) {
-      uploadFiles(e.target.files);
-    }
+    if (e.target.files && e.target.files.length > 0) uploadFiles(e.target.files);
   };
 
   const handleDrop = (e: React.DragEvent) => {
     e.preventDefault();
     setDragOver(false);
-    if (e.dataTransfer.files.length > 0) {
-      uploadFiles(e.dataTransfer.files);
-    }
+    if (e.dataTransfer.files.length > 0) uploadFiles(e.dataTransfer.files);
   };
 
   const handleDelete = async (fileName: string) => {
-    const { error } = await supabase.storage
-      .from(BUCKET)
-      .remove([`${FOLDER}/${fileName}`]);
-
+    const { error } = await supabase.storage.from(BUCKET).remove([`${FOLDER}/${fileName}`]);
     if (error) {
       toast.error(`Erro ao excluir ${fileName}`);
     } else {
@@ -228,34 +286,24 @@ const Dashboard = ({ onLogout }: DashboardProps) => {
     onLogout();
   };
 
+  const allSelected = filteredFiles.length > 0 && selectedFiles.size === filteredFiles.length;
+
   return (
     <div className="min-h-screen bg-background">
       <DashboardHeader onLogout={handleLogout} totalFiles={totalFiles} totalSize={totalSize} />
 
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8">
         {/* Upload Zone */}
         <div
-          className={`border-2 border-dashed rounded-xl p-8 text-center transition-all cursor-pointer mb-8 ${
-            dragOver
-              ? "dropzone-active"
-              : "border-border hover:border-muted-foreground/40"
+          className={`border-2 border-dashed rounded-xl p-6 sm:p-8 text-center transition-all cursor-pointer mb-6 sm:mb-8 ${
+            dragOver ? "dropzone-active" : "border-border hover:border-muted-foreground/40"
           }`}
-          onDragOver={(e) => {
-            e.preventDefault();
-            setDragOver(true);
-          }}
+          onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
           onDragLeave={() => setDragOver(false)}
           onDrop={handleDrop}
           onClick={() => document.getElementById("file-input")?.click()}
         >
-          <input
-            id="file-input"
-            type="file"
-            multiple
-            accept="image/*"
-            className="hidden"
-            onChange={handleFileSelect}
-          />
+          <input id="file-input" type="file" multiple accept="image/*" className="hidden" onChange={handleFileSelect} />
           {uploading ? (
             <div className="flex flex-col items-center gap-2">
               <Loader2 className="w-8 h-8 text-primary animate-spin" />
@@ -274,7 +322,6 @@ const Dashboard = ({ onLogout }: DashboardProps) => {
           )}
         </div>
 
-        {/* Search & Filters */}
         <FileSearchFilters
           searchQuery={searchQuery}
           onSearchChange={setSearchQuery}
@@ -294,20 +341,22 @@ const Dashboard = ({ onLogout }: DashboardProps) => {
         {/* File Section Header */}
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-2">
+            {filteredFiles.length > 0 && (
+              <Checkbox
+                checked={allSelected}
+                onCheckedChange={toggleSelectAll}
+                aria-label="Selecionar todos"
+              />
+            )}
             <FolderOpen className="w-5 h-5 text-primary" />
-            <h2 className="text-lg font-semibold">
+            <h2 className="text-base sm:text-lg font-semibold">
               Arquivos{" "}
               <span className="text-muted-foreground font-normal text-sm">
                 ({filteredFiles.length})
               </span>
             </h2>
           </div>
-          <ToggleGroup
-            type="single"
-            value={viewMode}
-            onValueChange={(v) => v && setViewMode(v)}
-            size="sm"
-          >
+          <ToggleGroup type="single" value={viewMode} onValueChange={(v) => v && setViewMode(v)} size="sm">
             <ToggleGroupItem value="grid" aria-label="Grade">
               <LayoutGrid className="w-4 h-4" />
             </ToggleGroupItem>
@@ -332,6 +381,8 @@ const Dashboard = ({ onLogout }: DashboardProps) => {
             onCopy={copyUrl}
             onDelete={handleDelete}
             onPreview={setPreviewFile}
+            selectedFiles={selectedFiles}
+            onToggleSelect={toggleSelect}
           />
         ) : (
           <FileListView
@@ -339,9 +390,20 @@ const Dashboard = ({ onLogout }: DashboardProps) => {
             onCopy={copyUrl}
             onDelete={handleDelete}
             onPreview={setPreviewFile}
+            selectedFiles={selectedFiles}
+            onToggleSelect={toggleSelect}
           />
         )}
       </main>
+
+      <BulkActionBar
+        count={selectedFiles.size}
+        onDownload={bulkDownload}
+        onDelete={bulkDelete}
+        onClear={clearSelection}
+        downloading={bulkDownloading}
+        deleting={bulkDeleting}
+      />
 
       <FilePreviewModal
         open={!!previewFile}

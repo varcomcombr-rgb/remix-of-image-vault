@@ -5,7 +5,6 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
 import { Loader2, Eye, EyeOff } from "lucide-react";
-import heroImage from "@/assets/hero-woman.png";
 import logoVarcom from "@/assets/logo-varcom.png";
 
 interface LoginPageProps {
@@ -39,14 +38,32 @@ const LoginPage = ({ onLogin }: LoginPageProps) => {
   return (
     <div className="min-h-screen flex flex-col bg-background">
       <div className="flex-1 flex flex-col lg:flex-row">
-        {/* Left Panel - Hero */}
-        <div className="hidden lg:flex lg:w-1/2 items-center justify-center p-12 gap-10">
+        {/* Left Panel - Hero (mobile: top image, desktop: side panel) */}
+        <div className="relative lg:w-1/2 flex items-center justify-center p-6 lg:p-12 gap-6 lg:gap-10">
+          {/* Mobile: show compact hero */}
+          <div className="block lg:hidden w-full text-center">
+            <img
+              src={new URL("@/assets/hero-woman.png", import.meta.url).href}
+              alt="Mulher trabalhando em laptop"
+              className="w-40 h-auto rounded-2xl object-cover mx-auto mb-4"
+              loading="eager"
+              decoding="async"
+              fetchPriority="high"
+            />
+            <h2 className="text-xl font-bold leading-tight text-foreground mb-2">
+              Tecnologia sob medida para o seu crescimento.
+            </h2>
+          </div>
+
+          {/* Desktop hero */}
           <img
-            src={heroImage}
+            src={new URL("@/assets/hero-woman.png", import.meta.url).href}
             alt="Mulher trabalhando em laptop"
-            className="w-72 h-auto rounded-3xl object-cover flex-shrink-0"
+            className="hidden lg:block w-72 h-auto rounded-3xl object-cover flex-shrink-0"
+            loading="eager"
+            decoding="async"
           />
-          <div className="max-w-sm">
+          <div className="hidden lg:block max-w-sm">
             <h2 className="text-3xl font-bold leading-tight text-foreground mb-4">
               Tecnologia sob medida para o seu crescimento.
             </h2>
@@ -62,7 +79,7 @@ const LoginPage = ({ onLogin }: LoginPageProps) => {
         </div>
 
         {/* Right Panel - Login Form */}
-        <div className="flex-1 flex items-center justify-center p-8 lg:p-12">
+        <div className="flex-1 flex items-center justify-center p-6 lg:p-12">
           <div className="w-full max-w-sm">
             <img
               src={logoVarcom}
@@ -130,7 +147,7 @@ const LoginPage = ({ onLogin }: LoginPageProps) => {
       </div>
 
       {/* Footer */}
-      <footer className="flex items-center justify-between px-8 py-4 border-t border-border">
+      <footer className="flex items-center justify-between px-6 lg:px-8 py-4 border-t border-border">
         <p className="text-xs text-muted-foreground">
           © 2026 Varcom. Todos os direitos reservados.
         </p>
