@@ -291,71 +291,126 @@ const Dashboard = ({ onLogout }: DashboardProps) => {
     setExporting(false);
   };
 
-  const uploadFiles = async (fileList: FileList | File[]) => {
+  const startUploadBatch = async (fileList: FileList | File[]) => {
     if (!folderPath) return;
-    setUploading(true);
+    const items = Array.from(fileList);
+    if (items.length === 0) return;
 
-    const filesToUpload = Array.from(fileList);
-    const duplicates: File[] = [];
-    const clean: File[] = [];
+    setUploadQueue(items);
+    setUploadCurrentIndex(0);
+    setUploadProgress(0);
+    setUploadStatus("UPLOADING");
 
-    filesToUpload.forEach(file => {
+    const abortController = new AbortController();
+    abortControllerRef.current = abortController;
+
+    const { data: { session } } = await supabase.auth.getSession();
+    const token = session?.access_token;
+    if (!token) {
+      toast.error("Sessão inválida. Faça login novamente.");
+      setUploadStatus("IDLE");
+      return;
+    }
+
+    let currentIndex = 0;
+
+    for (let file of items) {
+      if (abortController.signal.aborted) break;
+
+      setUploadCurrentIndex(currentIndex);
+      setUploadProgress(0);
+
+      // Duplicate Check
       if (files.some(f => f.name === file.name)) {
-        duplicates.push(file);
-      } else {
-        clean.push(file);
+        setUploadStatus("PAUSED_DUPLICATE");
+        setDuplicateFile(file);
+
+        const choice = await new Promise<'copy' | 'skip'>((resolve) => {
+          duplicateResolverRef.current = resolve;
+        });
+
+        duplicateResolverRef.current = null;
+        setDuplicateFile(null);
+
+        if (abortController.signal.aborted) break;
+
+        if (choice === 'skip') {
+          currentIndex++;
+          setUploadStatus("UPLOADING");
+          continue;
+        } else {
+          const extIndex = file.name.lastIndexOf(".");
+          const nameWithoutExt = extIndex >= 0 ? file.name.substring(0, extIndex) : file.name;
+          const ext = extIndex >= 0 ? file.name.substring(extIndex) : "";
+          const newName = `${nameWithoutExt}_copia_${Date.now()}${ext}`;
+          file = new File([file], newName, { type: file.type });
+        }
+
+        setUploadStatus("UPLOADING");
       }
-    });
 
-    for (const file of clean) {
-      const filePath = `${folderPath}/${file.name}`;
-      const { error } = await supabase.storage.from(BUCKET).upload(filePath, file, { upsert: false });
-      if (error) {
-        toast.error(`Erro ao enviar ${file.name}: ${error.message}`);
-      } else {
-        toast.success(`${file.name} enviado com sucesso!`);
+      if (abortController.signal.aborted) break;
+
+      // Real XHR Upload
+      try {
+        await new Promise<void>((resolve, reject) => {
+          const xhr = new XMLHttpRequest();
+          const url = `${import.meta.env.VITE_SUPABASE_URL}/storage/v1/object/${BUCKET}/${folderPath}/${file.name}`;
+          xhr.open("POST", url);
+          xhr.setRequestHeader("Authorization", `Bearer ${token}`);
+          xhr.setRequestHeader("apikey", import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY);
+          xhr.setRequestHeader("Content-Type", file.type || "application/octet-stream");
+
+          xhr.upload.onprogress = (e) => {
+            if (e.lengthComputable) {
+              setUploadProgress(Math.round((e.loaded / e.total) * 100));
+            }
+          };
+
+          xhr.onload = () => {
+            if (xhr.status >= 200 && xhr.status < 300) resolve();
+            else reject(new Error(`HTTP ${xhr.status}: ${xhr.responseText}`));
+          };
+          xhr.onerror = () => reject(new Error("Erro de rede"));
+          xhr.onabort = () => reject(new Error("Aborted"));
+
+          abortController.signal.addEventListener('abort', () => xhr.abort());
+          xhr.send(file);
+        });
+      } catch (err: any) {
+        if (err.message === "Aborted") {
+          break;
+        } else {
+          toast.error(`Falha ao enviar ${file.name}: ${err.message}`);
+        }
       }
+
+      currentIndex++;
     }
-    setUploading(false);
-    fetchFiles();
 
-    if (duplicates.length > 0) {
-      setDuplicateQueue(prev => [...prev, ...duplicates]);
-    }
-  };
-
-  const handleDuplicateAction = async (action: "copy") => {
-    if (!folderPath) return;
-    const currentFile = duplicateQueue[0];
-    if (!currentFile) return;
-
-    const extIndex = currentFile.name.lastIndexOf(".");
-    const nameWithoutExt = extIndex >= 0 ? currentFile.name.substring(0, extIndex) : currentFile.name;
-    const ext = extIndex >= 0 ? currentFile.name.substring(extIndex) : "";
-    const newName = `${nameWithoutExt}_copia_${Date.now()}${ext}`;
-    const filePath = `${folderPath}/${newName}`;
-
-    setUploading(true);
-    const { error } = await supabase.storage.from(BUCKET).upload(filePath, currentFile, { upsert: false });
-    if (error) {
-      toast.error(`Erro ao enviar cópia ${newName}: ${error.message}`);
+    if (abortController.signal.aborted) {
+      setUploadStatus("CANCELLED");
+      setUploadQueue([]);
+      toast.info("Upload cancelado pelo usuário");
+      setTimeout(() => setUploadStatus("IDLE"), 2000);
     } else {
-      toast.success(`${newName} enviado com sucesso!`);
+      setUploadStatus("FINISHED");
+      fetchFiles();
+      setTimeout(() => {
+        setUploadStatus("IDLE");
+        setUploadQueue([]);
+      }, 2500);
     }
-    setUploading(false);
-    fetchFiles();
-
-    setDuplicateQueue(prev => prev.slice(1));
   };
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files && e.target.files.length > 0) uploadFiles(e.target.files);
+    if (e.target.files && e.target.files.length > 0) startUploadBatch(e.target.files);
   };
 
   const handleDrop = (e: React.DragEvent) => {
     e.preventDefault();
     setDragOver(false);
-    if (e.dataTransfer.files.length > 0) uploadFiles(e.dataTransfer.files);
+    if (e.dataTransfer.files.length > 0) startUploadBatch(e.dataTransfer.files);
   };
 
   const handleDelete = async (fileName: string) => {
@@ -396,22 +451,15 @@ const Dashboard = ({ onLogout }: DashboardProps) => {
           onClick={() => document.getElementById("file-input")?.click()}
         >
           <input id="file-input" type="file" multiple accept="image/*" className="hidden" onChange={handleFileSelect} />
-          {uploading ? (
-            <div className="flex flex-col items-center gap-2">
-              <Loader2 className="w-8 h-8 text-primary animate-spin" />
-              <p className="text-sm text-muted-foreground">Enviando...</p>
-            </div>
-          ) : (
-            <div className="flex flex-col items-center gap-2">
-              <Upload className="w-8 h-8 text-muted-foreground" />
-              <p className="text-sm text-foreground font-medium">
-                Arraste imagens aqui ou clique para selecionar
-              </p>
-              <p className="text-xs text-muted-foreground">
-                Arquivos com o mesmo nome serão sobrescritos automaticamente
-              </p>
-            </div>
-          )}
+          <div className="flex flex-col items-center gap-2">
+            <Upload className="w-8 h-8 text-muted-foreground" />
+            <p className="text-sm text-foreground font-medium">
+              Arraste imagens aqui ou clique para selecionar
+            </p>
+            <p className="text-xs text-muted-foreground">
+              O sistema monitora e previne envios de arquivos duplicados
+            </p>
+          </div>
         </div>
 
         <FileSearchFilters
@@ -519,26 +567,65 @@ const Dashboard = ({ onLogout }: DashboardProps) => {
         fileUrl={previewFile?.url || ""}
       />
 
-      <Dialog
-        open={duplicateQueue.length > 0}
-        onOpenChange={(open) => {
-          if (!open) setDuplicateQueue(prev => prev.slice(1));
-        }}
-      >
-        <DialogContent>
+      <Dialog open={uploadStatus !== "IDLE" && uploadStatus !== "PAUSED_DUPLICATE"} onOpenChange={() => { }}>
+        <DialogContent onInteractOutside={(e) => e.preventDefault()} onEscapeKeyDown={(e) => e.preventDefault()} className="sm:max-w-md">
           <DialogHeader>
-            <DialogTitle>Arquivo Duplicado Encontrado</DialogTitle>
+            <DialogTitle className="text-center">
+              {uploadStatus === "FINISHED" ? "Upload concluído com sucesso!" :
+                uploadStatus === "CANCELLED" ? "Upload cancelado" : "Enviando Arquivos"}
+            </DialogTitle>
+          </DialogHeader>
+
+          {uploadStatus === "UPLOADING" && uploadQueue.length > 0 && (
+            <div className="py-6 space-y-6">
+              <div className="text-base font-medium text-center text-foreground">
+                Enviando arquivo {uploadCurrentIndex + 1} de {uploadQueue.length}
+              </div>
+              <div className="text-sm text-center text-muted-foreground truncate px-4">
+                {uploadQueue[uploadCurrentIndex]?.name}
+              </div>
+              <div className="px-4">
+                <div className="h-3 w-full bg-secondary rounded-full overflow-hidden">
+                  <div
+                    className="h-full bg-primary transition-all duration-200 ease-out"
+                    style={{ width: `${uploadProgress}%` }}
+                  />
+                </div>
+                <div className="text-xs text-right mt-2 font-medium text-muted-foreground">
+                  {uploadProgress}%
+                </div>
+              </div>
+              <div className="pt-4 flex justify-center">
+                <Button variant="destructive" onClick={() => abortControllerRef.current?.abort()}>
+                  Cancelar Upload
+                </Button>
+              </div>
+            </div>
+          )}
+
+          {uploadStatus === "FINISHED" && (
+            <div className="py-8 flex justify-center text-green-500">
+              <svg className="w-16 h-16 animate-in zoom-in duration-300 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M5 13l4 4L19 7"></path></svg>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={uploadStatus === "PAUSED_DUPLICATE"} onOpenChange={() => { }}>
+        <DialogContent onInteractOutside={(e) => e.preventDefault()} onEscapeKeyDown={(e) => e.preventDefault()}>
+          <DialogHeader>
+            <DialogTitle>Atenção: Sobrescrita de Arquivo</DialogTitle>
             <DialogDescription>
-              Já existe um arquivo com esse nome. Isso pode gerar duplicidade na sua CDN.
+              Já existe um arquivo com esse exato nome no seu diretório. Continuar pode gerar conflitos de cache na CDN.
               <br /><br />
-              Arquivo: <strong>{duplicateQueue[0]?.name}</strong>
+              Arquivo: <strong className="text-foreground">{duplicateFile?.name}</strong>
             </DialogDescription>
           </DialogHeader>
-          <DialogFooter>
-            <Button variant="secondary" onClick={() => setDuplicateQueue(prev => prev.slice(1))}>
-              Cancelar
+          <DialogFooter className="mt-4 flex gap-2 sm:justify-end">
+            <Button variant="secondary" onClick={() => duplicateResolverRef.current?.('skip')}>
+              Cancelar (Pular)
             </Button>
-            <Button onClick={() => handleDuplicateAction("copy")}>
+            <Button onClick={() => duplicateResolverRef.current?.('copy')}>
               Gerar Cópia
             </Button>
           </DialogFooter>
