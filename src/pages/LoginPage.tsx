@@ -38,34 +38,19 @@ const LoginPage = ({ onLogin }: LoginPageProps) => {
   return (
     <div className="min-h-screen flex flex-col bg-background">
       <div className="flex-1 flex flex-col lg:flex-row">
-        {/* Left Panel - Hero (mobile: top image, desktop: side panel) */}
-        <div className="relative lg:w-1/2 flex items-center justify-center p-6 lg:p-12 gap-6 lg:gap-10">
-          {/* Mobile: show compact hero */}
-          <div className="block lg:hidden w-full text-center">
-            <img
-              src={new URL("@/assets/hero-woman.png", import.meta.url).href}
-              alt="Mulher trabalhando em laptop"
-              className="w-40 h-auto rounded-2xl object-cover mx-auto mb-4"
-              loading="eager"
-              decoding="async"
-              fetchPriority="high"
-            />
-            <h2 className="text-xl font-bold leading-tight text-foreground mb-2">
-              Tecnologia sob medida para o seu crescimento.
-            </h2>
-          </div>
-
+        {/* Left Panel - Hero (desktop only) */}
+        <div className="hidden lg:flex relative w-1/2 items-center justify-center p-12 gap-10">
           {/* Desktop hero */}
           <img
             src={new URL("@/assets/hero-woman.png", import.meta.url).href}
             alt="Mulher trabalhando em laptop"
-            className="hidden lg:block w-72 h-auto rounded-3xl object-cover flex-shrink-0"
+            className="w-72 h-auto rounded-3xl object-cover flex-shrink-0"
             loading="eager"
             decoding="async"
           />
-          <div className="hidden lg:block max-w-sm">
+          <div className="max-w-sm">
             <h2 className="text-3xl font-bold leading-tight text-foreground mb-4">
-              Tecnologia sob medida para o seu crescimento.
+              Soluções inteligentes para o seu negócio
             </h2>
             <p className="text-muted-foreground text-base leading-relaxed">
               Tudo o que o seu negócio precisa para crescer: gestão de tarefas, arquivos e novas soluções, a um clique de distância.
