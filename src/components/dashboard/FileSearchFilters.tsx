@@ -63,16 +63,15 @@ const FileSearchFilters = ({
         />
       </div>
 
-      {/* Filters row */}
-      <div className="flex flex-wrap items-center gap-2">
-        {/* Date from */}
+      {/* Filters row - stacks on mobile */}
+      <div className="grid grid-cols-2 sm:flex sm:flex-wrap items-center gap-2">
         <Popover>
           <PopoverTrigger asChild>
             <Button
               variant="outline"
               size="sm"
               className={cn(
-                "text-xs gap-1.5 min-w-[140px] justify-start",
+                "text-xs gap-1.5 justify-start w-full sm:w-auto sm:min-w-[140px]",
                 !dateFrom && "text-muted-foreground"
               )}
             >
@@ -81,24 +80,17 @@ const FileSearchFilters = ({
             </Button>
           </PopoverTrigger>
           <PopoverContent className="w-auto p-0" align="start">
-            <Calendar
-              mode="single"
-              selected={dateFrom}
-              onSelect={onDateFromChange}
-              locale={ptBR}
-              initialFocus
-            />
+            <Calendar mode="single" selected={dateFrom} onSelect={onDateFromChange} locale={ptBR} initialFocus />
           </PopoverContent>
         </Popover>
 
-        {/* Date to */}
         <Popover>
           <PopoverTrigger asChild>
             <Button
               variant="outline"
               size="sm"
               className={cn(
-                "text-xs gap-1.5 min-w-[140px] justify-start",
+                "text-xs gap-1.5 justify-start w-full sm:w-auto sm:min-w-[140px]",
                 !dateTo && "text-muted-foreground"
               )}
             >
@@ -107,19 +99,12 @@ const FileSearchFilters = ({
             </Button>
           </PopoverTrigger>
           <PopoverContent className="w-auto p-0" align="start">
-            <Calendar
-              mode="single"
-              selected={dateTo}
-              onSelect={onDateToChange}
-              locale={ptBR}
-              initialFocus
-            />
+            <Calendar mode="single" selected={dateTo} onSelect={onDateToChange} locale={ptBR} initialFocus />
           </PopoverContent>
         </Popover>
 
-        {/* Type filter */}
         <Select value={typeFilter} onValueChange={onTypeFilterChange}>
-          <SelectTrigger className="w-[140px] h-9 text-xs">
+          <SelectTrigger className="w-full sm:w-[140px] h-9 text-xs">
             <SelectValue placeholder="Tipo" />
           </SelectTrigger>
           <SelectContent>
@@ -134,44 +119,29 @@ const FileSearchFilters = ({
           </SelectContent>
         </Select>
 
-        {/* Apply */}
-        <Button
-          size="sm"
-          className="text-xs gap-1.5"
-          onClick={onApplyFilters}
-        >
-          <Filter className="w-3.5 h-3.5" />
-          Aplicar
-        </Button>
-
-        {/* Clear filters */}
-        {hasActiveFilters && (
-          <Button
-            variant="ghost"
-            size="sm"
-            className="text-xs gap-1"
-            onClick={onClearFilters}
-          >
-            <X className="w-3.5 h-3.5" />
-            Limpar
+        <div className="flex gap-2">
+          <Button size="sm" className="text-xs gap-1.5 flex-1 sm:flex-none" onClick={onApplyFilters}>
+            <Filter className="w-3.5 h-3.5" />
+            Aplicar
           </Button>
-        )}
+          {hasActiveFilters && (
+            <Button variant="ghost" size="sm" className="text-xs gap-1 flex-1 sm:flex-none" onClick={onClearFilters}>
+              <X className="w-3.5 h-3.5" />
+              Limpar
+            </Button>
+          )}
+        </div>
 
-        {/* Export */}
-        <div className="ml-auto">
+        <div className="col-span-2 sm:col-span-1 sm:ml-auto">
           <Button
             variant="outline"
             size="sm"
-            className="text-xs gap-1.5"
+            className="text-xs gap-1.5 w-full sm:w-auto"
             onClick={onExport}
             disabled={exporting}
           >
-            {exporting ? (
-              <Loader2 className="w-3.5 h-3.5 animate-spin" />
-            ) : (
-              <Download className="w-3.5 h-3.5" />
-            )}
-            {exporting ? "Gerando Planilha..." : "Exportar Excel"}
+            {exporting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Download className="w-3.5 h-3.5" />}
+            {exporting ? "Gerando..." : "Exportar Excel"}
           </Button>
         </div>
       </div>

@@ -1,11 +1,16 @@
-import { useState } from "react";
 import { Button } from "@/components/ui/button";
-import { LogOut, Headset, Info } from "lucide-react";
+import { LogOut, Headset, Info, Menu } from "lucide-react";
 import {
   Popover,
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import logoVarcom from "@/assets/logo-varcom.png";
 
 interface DashboardHeaderProps {
@@ -25,15 +30,12 @@ const formatSize = (bytes: number) => {
 const DashboardHeader = ({ onLogout, totalFiles = 0, totalSize = 0 }: DashboardHeaderProps) => {
   return (
     <header className="border-b bg-card/50 backdrop-blur-sm sticky top-0 z-10">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex items-center justify-between h-16">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex items-center justify-between h-14 sm:h-16">
         <img src={logoVarcom} alt="Varcom" className="h-5" />
-        <div className="flex items-center gap-1">
-          <Button
-            variant="ghost"
-            size="sm"
-            className="text-muted-foreground hover:text-foreground"
-            asChild
-          >
+
+        {/* Desktop nav */}
+        <div className="hidden sm:flex items-center gap-1">
+          <Button variant="ghost" size="sm" className="text-muted-foreground hover:text-foreground" asChild>
             <a href="https://www.varcom.com.br" target="_blank" rel="noopener noreferrer">
               <Headset className="w-4 h-4 mr-2" />
               Suporte
@@ -42,11 +44,7 @@ const DashboardHeader = ({ onLogout, totalFiles = 0, totalSize = 0 }: DashboardH
 
           <Popover>
             <PopoverTrigger asChild>
-              <Button
-                variant="ghost"
-                size="sm"
-                className="text-muted-foreground hover:text-foreground"
-              >
+              <Button variant="ghost" size="sm" className="text-muted-foreground hover:text-foreground">
                 <Info className="w-4 h-4 mr-2" />
                 Detalhes
               </Button>
@@ -76,15 +74,31 @@ const DashboardHeader = ({ onLogout, totalFiles = 0, totalSize = 0 }: DashboardH
             </PopoverContent>
           </Popover>
 
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={onLogout}
-            className="text-muted-foreground hover:text-foreground"
-          >
+          <Button variant="ghost" size="sm" onClick={onLogout} className="text-muted-foreground hover:text-foreground">
             <LogOut className="w-4 h-4 mr-2" />
             Sair
           </Button>
+        </div>
+
+        {/* Mobile menu */}
+        <div className="sm:hidden">
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="ghost" size="icon" className="text-muted-foreground">
+                <Menu className="w-5 h-5" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-48">
+              <DropdownMenuItem asChild>
+                <a href="https://www.varcom.com.br" target="_blank" rel="noopener noreferrer" className="flex items-center gap-2">
+                  <Headset className="w-4 h-4" /> Suporte
+                </a>
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={onLogout} className="flex items-center gap-2">
+                <LogOut className="w-4 h-4" /> Sair
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
       </div>
     </header>
