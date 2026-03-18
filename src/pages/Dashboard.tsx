@@ -438,7 +438,7 @@ const Dashboard = ({ onLogout }: DashboardProps) => {
 
   return (
     <div className="min-h-screen bg-background">
-      <DashboardHeader onLogout={handleLogout} totalFiles={totalFiles} totalSize={totalSize} />
+      <DashboardHeader onLogout={handleLogout} totalFiles={totalFiles} totalSize={totalSize} userEmail={user?.email} />
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8">
         {/* Upload Zone */}

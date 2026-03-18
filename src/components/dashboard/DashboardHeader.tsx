@@ -17,6 +17,7 @@ interface DashboardHeaderProps {
   onLogout: () => void;
   totalFiles?: number;
   totalSize?: number;
+  userEmail?: string;
 }
 
 const formatSize = (bytes: number) => {
@@ -27,7 +28,7 @@ const formatSize = (bytes: number) => {
   return `${(bytes / 1073741824).toFixed(2)} GB`;
 };
 
-const DashboardHeader = ({ onLogout, totalFiles = 0, totalSize = 0 }: DashboardHeaderProps) => {
+const DashboardHeader = ({ onLogout, totalFiles = 0, totalSize = 0, userEmail }: DashboardHeaderProps) => {
   return (
     <header className="border-b bg-card/50 backdrop-blur-sm sticky top-0 z-10">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex items-center justify-between h-14 sm:h-16">
@@ -51,10 +52,18 @@ const DashboardHeader = ({ onLogout, totalFiles = 0, totalSize = 0 }: DashboardH
             </PopoverTrigger>
             <PopoverContent className="w-72" align="end">
               <div className="space-y-3">
-                <h4 className="font-semibold text-sm text-foreground">Detalhes do Bucket</h4>
+                <h4 className="font-semibold text-sm text-foreground">Detalhes da Conta</h4>
                 <div className="space-y-2 text-sm">
-                  <div className="flex justify-between">
-                    <span className="text-muted-foreground">Classe de armazenamento</span>
+                  {userEmail && (
+                    <div className="flex justify-between items-center gap-2">
+                      <span className="text-muted-foreground whitespace-nowrap">Conectado como</span>
+                      <span className="font-medium text-foreground text-xs truncate" title={userEmail}>
+                        {userEmail}
+                      </span>
+                    </div>
+                  )}
+                  <div className="flex justify-between mt-1 pt-1 border-t border-border/40">
+                    <span className="text-muted-foreground">Plano Atual</span>
                     <span className="font-medium text-foreground">Premium</span>
                   </div>
                   <div className="flex justify-between">
