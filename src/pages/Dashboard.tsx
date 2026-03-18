@@ -1,4 +1,4 @@
-import { useState, useCallback, useMemo, useEffect } from "react";
+import { useState, useCallback, useMemo, useEffect, useRef } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import JSZip from "jszip";
@@ -59,7 +59,17 @@ const Dashboard = ({ onLogout }: DashboardProps) => {
 
   const [exporting, setExporting] = useState(false);
   const [visibleCount, setVisibleCount] = useState(50);
-  const [duplicateQueue, setDuplicateQueue] = useState<File[]>([]);
+
+  // Upload Management State
+  type UploadStatus = "IDLE" | "UPLOADING" | "PAUSED_DUPLICATE" | "FINISHED" | "CANCELLED";
+  const [uploadStatus, setUploadStatus] = useState<UploadStatus>("IDLE");
+  const [uploadQueue, setUploadQueue] = useState<File[]>([]);
+  const [uploadCurrentIndex, setUploadCurrentIndex] = useState(0);
+  const [uploadProgress, setUploadProgress] = useState(0);
+  const [duplicateFile, setDuplicateFile] = useState<File | null>(null);
+
+  const abortControllerRef = useRef<AbortController | null>(null);
+  const duplicateResolverRef = useRef<((choice: 'copy' | 'skip') => void) | null>(null);
 
   const folderPath = user?.id;
 
