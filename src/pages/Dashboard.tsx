@@ -1,4 +1,4 @@
-import { useState, useCallback, useMemo } from "react";
+import { useState, useCallback, useMemo, useEffect } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import JSZip from "jszip";
@@ -19,10 +19,10 @@ import FilePreviewModal from "@/components/dashboard/FilePreviewModal";
 import FileSearchFilters from "@/components/dashboard/FileSearchFilters";
 import BulkActionBar from "@/components/dashboard/BulkActionBar";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Button } from "@/components/ui/button";
 
 const BUCKET = "varcom";
-const FOLDER = "Imagem";
-const BASE_URL = `${import.meta.env.VITE_SUPABASE_URL}/storage/v1/object/public/${BUCKET}/${FOLDER}`;
 
 interface FileItem {
   name: string;
@@ -36,6 +36,7 @@ interface DashboardProps {
 }
 
 const Dashboard = ({ onLogout }: DashboardProps) => {
+  const [user, setUser] = useState<any>(null);
   const [files, setFiles] = useState<FileItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
@@ -57,22 +58,59 @@ const Dashboard = ({ onLogout }: DashboardProps) => {
   const [appliedDateTo, setAppliedDateTo] = useState<Date | undefined>();
 
   const [exporting, setExporting] = useState(false);
+  const [visibleCount, setVisibleCount] = useState(50);
+  const [duplicateQueue, setDuplicateQueue] = useState<File[]>([]);
 
-  const getPublicUrl = (fileName: string) => `${BASE_URL}/${fileName}`;
+  const folderPath = user?.id;
+
+  useEffect(() => {
+    supabase.auth.getUser().then(({ data }) => setUser(data.user));
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      setUser(session?.user ?? null);
+    });
+    return () => subscription.unsubscribe();
+  }, []);
+
+  const getPublicUrl = useCallback((fileName: string) => {
+    if (!folderPath) return "";
+    return `${import.meta.env.VITE_SUPABASE_URL}/storage/v1/object/public/${BUCKET}/${folderPath}/${fileName}`;
+  }, [folderPath]);
 
   const fetchFiles = useCallback(async () => {
+    if (!folderPath) return;
     setLoading(true);
-    const { data, error } = await supabase.storage
-      .from(BUCKET)
-      .list(FOLDER, { sortBy: { column: "name", order: "asc" } });
+    let allData: any[] = [];
+    let offset = 0;
+    const limit = 100;
+    let hasMore = true;
 
-    if (error) {
-      toast.error("Erro ao carregar arquivos");
-      setLoading(false);
-      return;
+    while (hasMore) {
+      const { data, error } = await supabase.storage
+        .from(BUCKET)
+        .list(folderPath, {
+          sortBy: { column: "name", order: "asc" },
+          limit,
+          offset
+        });
+
+      if (error) {
+        toast.error("Erro ao carregar arquivos");
+        setLoading(false);
+        return;
+      }
+
+      if (data) {
+        allData = [...allData, ...data];
+      }
+
+      if (!data || data.length < limit) {
+        hasMore = false;
+      } else {
+        offset += limit;
+      }
     }
 
-    const items: FileItem[] = (data || [])
+    const items: FileItem[] = allData
       .filter((f) => f.name && f.id)
       .map((f) => ({
         name: f.name,
@@ -83,11 +121,11 @@ const Dashboard = ({ onLogout }: DashboardProps) => {
 
     setFiles(items);
     setLoading(false);
-  }, []);
+  }, [folderPath, getPublicUrl]);
 
-  useState(() => {
+  useEffect(() => {
     fetchFiles();
-  });
+  }, [fetchFiles]);
 
   const totalFiles = files.length;
   const totalSize = useMemo(() => files.reduce((sum, f) => sum + (f.size || 0), 0), [files]);
@@ -121,6 +159,7 @@ const Dashboard = ({ onLogout }: DashboardProps) => {
     setAppliedType(typeFilter);
     setAppliedDateFrom(dateFrom);
     setAppliedDateTo(dateTo);
+    setVisibleCount(50);
   };
 
   const clearFilters = () => {
@@ -132,6 +171,7 @@ const Dashboard = ({ onLogout }: DashboardProps) => {
     setAppliedType("all");
     setAppliedDateFrom(undefined);
     setAppliedDateTo(undefined);
+    setVisibleCount(50);
   };
 
   // Selection logic
@@ -192,11 +232,12 @@ const Dashboard = ({ onLogout }: DashboardProps) => {
 
   // Bulk delete
   const bulkDelete = async () => {
+    if (!folderPath) return;
     const names = Array.from(selectedFiles);
     if (names.length === 0) return;
 
     setBulkDeleting(true);
-    const paths = names.map((n) => `${FOLDER}/${n}`);
+    const paths = names.map((n) => `${folderPath}/${n}`);
     const { error } = await supabase.storage.from(BUCKET).remove(paths);
 
     if (error) {
@@ -227,7 +268,7 @@ const Dashboard = ({ onLogout }: DashboardProps) => {
         "Tamanho": formatSize(f.size || 0),
         "Tipo": getExt(f.name) || "N/A",
         "Data de Criação": f.updated_at ? new Date(f.updated_at).toLocaleDateString("pt-BR") : "N/A",
-        "URL Pública": `${BASE_URL}/${f.name}`,
+        "URL Pública": getPublicUrl(f.name),
       }));
       const ws = XLSX.utils.json_to_sheet(rows);
       const wb = XLSX.utils.book_new();
@@ -241,11 +282,24 @@ const Dashboard = ({ onLogout }: DashboardProps) => {
   };
 
   const uploadFiles = async (fileList: FileList | File[]) => {
+    if (!folderPath) return;
     setUploading(true);
+
     const filesToUpload = Array.from(fileList);
-    for (const file of filesToUpload) {
-      const filePath = `${FOLDER}/${file.name}`;
-      const { error } = await supabase.storage.from(BUCKET).upload(filePath, file, { upsert: true });
+    const duplicates: File[] = [];
+    const clean: File[] = [];
+
+    filesToUpload.forEach(file => {
+      if (files.some(f => f.name === file.name)) {
+        duplicates.push(file);
+      } else {
+        clean.push(file);
+      }
+    });
+
+    for (const file of clean) {
+      const filePath = `${folderPath}/${file.name}`;
+      const { error } = await supabase.storage.from(BUCKET).upload(filePath, file, { upsert: false });
       if (error) {
         toast.error(`Erro ao enviar ${file.name}: ${error.message}`);
       } else {
@@ -254,6 +308,34 @@ const Dashboard = ({ onLogout }: DashboardProps) => {
     }
     setUploading(false);
     fetchFiles();
+
+    if (duplicates.length > 0) {
+      setDuplicateQueue(prev => [...prev, ...duplicates]);
+    }
+  };
+
+  const handleDuplicateAction = async (action: "copy") => {
+    if (!folderPath) return;
+    const currentFile = duplicateQueue[0];
+    if (!currentFile) return;
+
+    const extIndex = currentFile.name.lastIndexOf(".");
+    const nameWithoutExt = extIndex >= 0 ? currentFile.name.substring(0, extIndex) : currentFile.name;
+    const ext = extIndex >= 0 ? currentFile.name.substring(extIndex) : "";
+    const newName = `${nameWithoutExt}_copia_${Date.now()}${ext}`;
+    const filePath = `${folderPath}/${newName}`;
+
+    setUploading(true);
+    const { error } = await supabase.storage.from(BUCKET).upload(filePath, currentFile, { upsert: false });
+    if (error) {
+      toast.error(`Erro ao enviar cópia ${newName}: ${error.message}`);
+    } else {
+      toast.success(`${newName} enviado com sucesso!`);
+    }
+    setUploading(false);
+    fetchFiles();
+
+    setDuplicateQueue(prev => prev.slice(1));
   };
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -267,7 +349,8 @@ const Dashboard = ({ onLogout }: DashboardProps) => {
   };
 
   const handleDelete = async (fileName: string) => {
-    const { error } = await supabase.storage.from(BUCKET).remove([`${FOLDER}/${fileName}`]);
+    if (!folderPath) return;
+    const { error } = await supabase.storage.from(BUCKET).remove([`${folderPath}/${fileName}`]);
     if (error) {
       toast.error(`Erro ao excluir ${fileName}`);
     } else {
@@ -295,9 +378,8 @@ const Dashboard = ({ onLogout }: DashboardProps) => {
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8">
         {/* Upload Zone */}
         <div
-          className={`border-2 border-dashed rounded-xl p-6 sm:p-8 text-center transition-all cursor-pointer mb-6 sm:mb-8 ${
-            dragOver ? "dropzone-active" : "border-border hover:border-muted-foreground/40"
-          }`}
+          className={`border-2 border-dashed rounded-xl p-6 sm:p-8 text-center transition-all cursor-pointer mb-6 sm:mb-8 ${dragOver ? "dropzone-active" : "border-border hover:border-muted-foreground/40"
+            }`}
           onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
           onDragLeave={() => setDragOver(false)}
           onDrop={handleDrop}
@@ -375,24 +457,39 @@ const Dashboard = ({ onLogout }: DashboardProps) => {
             <ImageIcon className="w-12 h-12 mx-auto mb-3 opacity-30" />
             <p>{hasActiveFilters ? "Nenhum arquivo corresponde aos filtros" : "Nenhuma imagem encontrada"}</p>
           </div>
-        ) : viewMode === "grid" ? (
-          <FileGridView
-            files={filteredFiles}
-            onCopy={copyUrl}
-            onDelete={handleDelete}
-            onPreview={setPreviewFile}
-            selectedFiles={selectedFiles}
-            onToggleSelect={toggleSelect}
-          />
         ) : (
-          <FileListView
-            files={filteredFiles}
-            onCopy={copyUrl}
-            onDelete={handleDelete}
-            onPreview={setPreviewFile}
-            selectedFiles={selectedFiles}
-            onToggleSelect={toggleSelect}
-          />
+          <>
+            {viewMode === "grid" ? (
+              <FileGridView
+                files={filteredFiles.slice(0, visibleCount)}
+                onCopy={copyUrl}
+                onDelete={handleDelete}
+                onPreview={setPreviewFile}
+                selectedFiles={selectedFiles}
+                onToggleSelect={toggleSelect}
+              />
+            ) : (
+              <FileListView
+                files={filteredFiles.slice(0, visibleCount)}
+                onCopy={copyUrl}
+                onDelete={handleDelete}
+                onPreview={setPreviewFile}
+                selectedFiles={selectedFiles}
+                onToggleSelect={toggleSelect}
+              />
+            )}
+
+            {visibleCount < filteredFiles.length && (
+              <div className="flex justify-center mt-8">
+                <button
+                  onClick={() => setVisibleCount((prev) => prev + 50)}
+                  className="px-6 py-2 bg-secondary text-secondary-foreground hover:bg-secondary/80 rounded-md font-medium transition-colors cursor-pointer"
+                >
+                  Carregar mais
+                </button>
+              </div>
+            )}
+          </>
         )}
       </main>
 
@@ -411,6 +508,32 @@ const Dashboard = ({ onLogout }: DashboardProps) => {
         fileName={previewFile?.name || ""}
         fileUrl={previewFile?.url || ""}
       />
+
+      <Dialog
+        open={duplicateQueue.length > 0}
+        onOpenChange={(open) => {
+          if (!open) setDuplicateQueue(prev => prev.slice(1));
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Arquivo Duplicado Encontrado</DialogTitle>
+            <DialogDescription>
+              Já existe um arquivo com esse nome. Isso pode gerar duplicidade na sua CDN.
+              <br /><br />
+              Arquivo: <strong>{duplicateQueue[0]?.name}</strong>
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="secondary" onClick={() => setDuplicateQueue(prev => prev.slice(1))}>
+              Cancelar
+            </Button>
+            <Button onClick={() => handleDuplicateAction("copy")}>
+              Gerar Cópia
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };
